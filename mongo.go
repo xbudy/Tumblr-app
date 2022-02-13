@@ -69,21 +69,68 @@ func RemoveError(blog string, Post post) {
 	col := db.Collection(blog + "" + "Errors")
 	col.DeleteOne(ctx, Post)
 }
-func (Mdb MongoDb) getPost(blog, Id string) post {
+func (Mdb MongoDb) getPost(blog, Id string) PostMeta {
 	db := Mdb.Client.Database("tumblr")
 	col := db.Collection(blog)
-	var Post post
-	r := col.FindOne(Mdb.Ctx, bson.D{{Key: "Id", Value: Id}})
+	var Post PostMeta
+	r := col.FindOne(Mdb.Ctx, bson.D{{Key: "id", Value: Id}})
 	r.Decode(&Post)
+	if r.Err() != nil {
+		log.Println(r.Err(), Id)
+	}
 	return Post
 }
 func (Mdb MongoDb) GetPostsCount(blog string) (int, error) {
 	db := Mdb.Client.Database("tumblr")
 	col := db.Collection(blog)
-	count, err := col.CountDocuments(Mdb.Ctx, bson.D{})
+	count, err := col.CountDocuments(Mdb.Ctx, bson.D{{Key: "type", Value: "post"}})
 	return int(count), err
 }
+func (Mdb MongoDb) AddPost(blog string, post PostMeta) {
+	db := Mdb.Client.Database("tumblr")
+	col := db.Collection(blog)
+	r, err := col.InsertOne(Mdb.Ctx, post)
+	log.Println(r.InsertedID)
+	if err != nil {
+		log.Println(err)
+	}
+}
+func (Mdb MongoDb) setLastPage(blog string, lastPage string) {
+	db := Mdb.Client.Database("tumblr")
+	col := db.Collection(blog)
+	opts := options.Update().SetUpsert(true)
+	col.UpdateOne(Mdb.Ctx, bson.D{{Key: "type", Value: "lastPage"}}, bson.D{{Key: "$set", Value: bson.D{{Key: "value", Value: lastPage}}}}, opts)
+}
+func (Mdb MongoDb) GetLastPage(blog string) string {
+	db := Mdb.Client.Database("tumblr")
+	col := db.Collection(blog)
+	res := col.FindOne(Mdb.Ctx, bson.D{{Key: "type", Value: "lastPage"}})
+	var data lastPage
+	res.Decode(&data)
+	return data.Value
+}
+func (Mdb MongoDb) SetBlogInfo(blog string, binfo bloginfo) {
+	db := Mdb.Client.Database("tumblr")
+	col := db.Collection(blog)
+	opts := options.Update().SetUpsert(true)
+	col.UpdateOne(Mdb.Ctx, bson.D{{Key: "type", Value: "bloginfo"}}, bson.D{{Key: "$set", Value: bson.D{{Key: "total_posts", Value: binfo.TotalPosts}}}}, opts)
+}
+func (Mdb MongoDb) GetBlogInfo(blog string) bloginfo {
+	db := Mdb.Client.Database("tumblr")
+	col := db.Collection(blog)
+	res := col.FindOne(Mdb.Ctx, bson.D{{Key: "type", Value: "bloginfo"}})
 
+	var data bloginfo
+	res.Decode(&data)
+	return data
+}
+
+type bloginfo struct {
+	TotalPosts int `bson:"total_posts"`
+}
+type lastPage struct {
+	Value string
+}
 type MongoDb struct {
 	Client *mongo.Client
 	Ctx    context.Context

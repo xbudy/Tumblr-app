@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"log"
 
+	"fyne.io/fyne/v2/widget"
 	"github.com/gocolly/colly"
 )
 
 const base = "https://api.tumblr.com"
 
-func StartScraping(blog string) {
+func StartScraping(Mdb MongoDb, blog string, progressBar *widget.ProgressBar) {
+
 	page := fmt.Sprintf("https://api.tumblr.com/v2/blog/%v/posts?fields[blogs]=name,avatar,title,url,is_adult,?is_member,description_npf,uuid,can_be_followed,?followed,?advertiser_name,theme,?primary,?is_paywall_on,?paywall_access,?subscription_plan,share_likes,share_following,can_subscribe,subscribed,ask,?can_submit,?is_blocked_from_primary,?is_blogless_advertiser,?tweet,updated,first_post_timestamp,posts,description,?top_tags_all&npf=true&reblog_info=true&type=photo", blog)
 	c := colly.NewCollector()
 	c.OnRequest(func(r *colly.Request) {
@@ -33,12 +35,25 @@ func StartScraping(blog string) {
 		var resData ResponseData
 		json.Unmarshal(r.Body, &resData)
 		//posts := resData.Response.Posts
+		log.Println(resData.Response.Blog.TotalPosts)
+		Mdb.SetBlogInfo(blog, bloginfo{TotalPosts: resData.Response.Blog.TotalPosts})
+		//
+		postsOnPage := ParsingTumblrPostResult(resData)
+		step := float64(1) / float64(len(postsOnPage))
+		var StepNow float64
+		for _, post := range postsOnPage {
+			StepNow = step + StepNow
+			progressBar.SetValue(StepNow)
+			Mdb.AddPost(blog, post)
+
+		}
 		links := resData.Response.Links.Next
 		if len(links.Href) != 0 {
 			log.Println("next")
 			//c.Visit(base + links.Href)
+			Mdb.setLastPage(blog, links.Params.PageNumber)
 		}
-		log.Println(links.Params.PageNumber)
+
 	})
 	c.OnError(func(r *colly.Response, e error) {
 		log.Println(e)
@@ -46,12 +61,52 @@ func StartScraping(blog string) {
 	log.Println("start")
 	c.Visit(page)
 }
+func ParsingTumblrPostResult(resData ResponseData) []PostMeta {
+	var Posts []PostMeta
+	for _, post := range resData.Response.Posts {
+		if post.Type == "post" {
+			id, timestamp := post.Id, post.Timestamp
+			var medias []PostMedia
+			var Pcontent content
+			if len(post.RebloggedFromName) != 0 {
+				Pcontent = post.Trail[0]
+			} else {
+				Pcontent = post.Content
+			}
+			for _, media := range Pcontent {
+				mediaType := media.Type
+				filterBool := mediaType == "image" || mediaType == "video"
+				if len(media.Media) != 0 && filterBool {
+					mediaRessourceType := media.Media[0].Type
+					mediaUrl := media.Media[0].Url
+					medias = append(medias, PostMedia{Type: mediaRessourceType, Url: mediaUrl})
 
+				}
+			}
+			Posts = append(Posts, PostMeta{Id: id, Timestamp: timestamp, Medias: medias, Type: "post"})
+		}
+	}
+	return Posts
+}
+
+type PostMedia struct {
+	Type string
+	Url  string
+}
+type PostMeta struct {
+	Type      string      `bson:"type"`
+	Id        string      `bson:"id"`
+	Timestamp int         `bson:"timestamp"`
+	Medias    []PostMedia `bson:"medias"`
+}
 type ResponseData struct {
 	Response struct {
-		TotalPosts int    `json:"totalPosts"`
-		Posts      []Post `json:"posts"`
-		Links      struct {
+		Blog struct {
+			TotalPosts int `json:"posts"`
+		} `json:"blog"`
+
+		Posts []Post `json:"posts"`
+		Links struct {
 			Next struct {
 				Href   string `json:"href"`
 				Params struct {
@@ -62,19 +117,23 @@ type ResponseData struct {
 	} `json:"response"`
 }
 type Post struct {
-	Type              string    `json:"type"`
+	Type              string    `json:"object_type"`
 	Isnsfw            bool      `json:"isnsfw"`
 	Id                string    `json:"id"`
 	Timestamp         int       `json:"timestamp"`
-	RebloggedFromName string    `json:"RebloggedFromName"`
+	RebloggedFromName string    `json:"reblogged_from_name"`
 	Trail             []content `json:"trail"`
 	Content           content   `json:"content"`
 }
 type content []struct {
-	Type  string `json:"type"`
+	Type  string `json:"Type"`
 	Media []struct {
 		Url                   string `json:"url"`
 		Type                  string `json:"type"`
 		HasOriginalDimensions bool   `json:"hasOriginalDimensions"`
 	} `json:"media"`
+}
+
+func BuildPageUrl(blog string, page_number string) {
+
 }
