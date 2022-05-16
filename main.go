@@ -15,6 +15,7 @@ import (
 func main() {
 	a := app.New()
 	mainWindow := a.NewWindow("Tumblr")
+	mainWindow.Resize(fyne.NewSize(600, 400))
 	//InitDb
 	cl, ctx := InitMongoDb()
 	Mongodb := MongoDb{Client: cl, Ctx: ctx}

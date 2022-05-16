@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -12,8 +13,20 @@ import (
 )
 
 func CreateExtractPostsWindow(mdb MongoDb, a fyne.App, blog string) fyne.Window {
-	log.Println(mdb.GetBlogInfo(blog).TotalPosts)
+	//Context of running
+	ctx := context.WithValue(context.Background(), "run", true)
+	stopped := true
+	results := make(chan bool)
 	w := a.NewWindow("Extract " + blog + " Posts")
+	w.SetCloseIntercept(func() {
+		log.Println("closing")
+		if !stopped {
+			results <- false
+			close(results)
+		}
+
+		w.Close()
+	})
 	w.Resize(fyne.NewSize(780, 400))
 	infoLabel := widget.NewLabel("Info")
 	InfoTitle := container.New(layout.NewHBoxLayout(), layout.NewSpacer(), infoLabel, layout.NewSpacer())
@@ -42,10 +55,29 @@ func CreateExtractPostsWindow(mdb MongoDb, a fyne.App, blog string) fyne.Window 
 	progressBar := widget.NewProgressBar()
 	StartBtn := widget.NewButtonWithIcon("start", theme.DownloadIcon(), func() {
 		log.Println(blog)
-		StartScraping(mdb, blog, progressBar)
+		if stopped {
+			go StartScraping(results, mdb, blog, true, progressBar)
+			stopped = false
+
+		}
 
 	})
-	BtnLayout := container.New(layout.NewHBoxLayout(), layout.NewSpacer(), StartBtn, layout.NewSpacer())
+	DwnBtn := widget.NewButtonWithIcon("Download", theme.DownloadIcon(), func() {
+		InitBlog(blog)
+		Pooling(blog, mdb.GetPosts(blog))
+
+	})
+	StopBtn := widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() {
+		if !stopped {
+			results <- false
+			close(results)
+			log.Println("Stopping")
+			stopped = true
+		}
+		log.Println(ctx)
+
+	})
+	BtnLayout := container.New(layout.NewHBoxLayout(), layout.NewSpacer(), StartBtn, DwnBtn, StopBtn, layout.NewSpacer())
 
 	Jobfield := container.New(layout.NewVBoxLayout(), WorkTitle, JobForm, BtnLayout, progressBar)
 
@@ -53,4 +85,7 @@ func CreateExtractPostsWindow(mdb MongoDb, a fyne.App, blog string) fyne.Window 
 	w.SetContent(mainContent)
 	return w
 
+}
+func newpBool(b bool) *bool {
+	return &b
 }

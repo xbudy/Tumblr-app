@@ -20,11 +20,21 @@ func InitMongoDb() (*mongo.Client, context.Context) {
 	check_err(err)
 	return client, ctx
 }
-
+func (Mdb MongoDb) GetPosts(blog string) []PostMeta {
+	db := Mdb.Client.Database("tumblr")
+	col := db.Collection(blog)
+	cursor, err := col.Find(Mdb.Ctx, bson.D{{Key: "type", Value: "post"}})
+	if err != nil {
+		panic(err)
+	}
+	var data []PostMeta
+	cursor.All(Mdb.Ctx, &data)
+	return data
+}
 func (Mdb MongoDb) GetData(blog string) []post {
 	db := Mdb.Client.Database("tumblr")
 	col := db.Collection(blog)
-	cursor, err := col.Find(Mdb.Ctx, bson.D{})
+	cursor, err := col.Find(Mdb.Ctx, bson.D{{Key: "type", Value: "post"}})
 	if err != nil {
 		panic(err)
 	}
@@ -89,8 +99,9 @@ func (Mdb MongoDb) GetPostsCount(blog string) (int, error) {
 func (Mdb MongoDb) AddPost(blog string, post PostMeta) {
 	db := Mdb.Client.Database("tumblr")
 	col := db.Collection(blog)
-	r, err := col.InsertOne(Mdb.Ctx, post)
-	log.Println(r.InsertedID)
+	//_, err := col.InsertOne(Mdb.Ctx, post)
+	opts := options.Update().SetUpsert(true)
+	_, err := col.UpdateOne(Mdb.Ctx, post, bson.D{{Key: "$set", Value: post}}, opts)
 	if err != nil {
 		log.Println(err)
 	}
@@ -99,7 +110,10 @@ func (Mdb MongoDb) setLastPage(blog string, lastPage string) {
 	db := Mdb.Client.Database("tumblr")
 	col := db.Collection(blog)
 	opts := options.Update().SetUpsert(true)
-	col.UpdateOne(Mdb.Ctx, bson.D{{Key: "type", Value: "lastPage"}}, bson.D{{Key: "$set", Value: bson.D{{Key: "value", Value: lastPage}}}}, opts)
+	_, e := col.UpdateOne(Mdb.Ctx, bson.D{{Key: "type", Value: "lastPage"}}, bson.D{{Key: "$set", Value: bson.D{{Key: "value", Value: lastPage}}}}, opts)
+	if e != nil {
+		log.Error(e)
+	}
 }
 func (Mdb MongoDb) GetLastPage(blog string) string {
 	db := Mdb.Client.Database("tumblr")
